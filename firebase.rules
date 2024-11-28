@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUserOwned(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isValidReminder() {
+      let hasValidTitle = request.resource.data.title is string && 
+                         request.resource.data.title.size() > 0 && 
+                         request.resource.data.title.size() <= 100;
+                         
+      let hasValidDays = request.resource.data.days is list && 
+                        request.resource.data.days.size() > 0;
+                        
+      let validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      let allDaysValid = request.resource.data.days.hasAll(validDays) == false &&
+                        request.resource.data.days.hasOnly(validDays);
+                        
+      let validRecurrence = ['daily', 'today', 'tomorrow', 'workdays', 'weekends', 'custom'].hasAny([request.resource.data.recurrence]);
+      
+      return hasValidTitle && hasValidDays && allDaysValid && validRecurrence;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated() && isUserOwned(userId);
+      allow create: if isAuthenticated() && isUserOwned(userId);
+      allow update: if isAuthenticated() && isUserOwned(userId);
+      allow delete: if false; // Prevent user deletion through client
+    }
+
+    // Reminders
+    match /reminders/{reminderId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && 
+                      request.resource.data.userId == request.auth.uid && 
+                      isValidReminder();
+      allow update: if isAuthenticated() && 
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.userId == request.auth.uid &&
+                      isValidReminder();
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Messages
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
